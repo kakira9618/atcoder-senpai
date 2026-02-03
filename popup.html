@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AtCoder Senpai</title>
+  <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+  <link rel="stylesheet" href="vendor/highlightjs/styles/github.min.css" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <img src="icon/128.png" alt="AtCoder Senpai Icon" class="header-icon">
+      <div class="header-text">
+        <div class="title">AtCoder Senpai</div>
+        <div class="subtitle">コンテスト提出を上位陣と比較しAI添削します</div>
+      </div>
+      <button id="btnOpenSettings" class="ghost small-btn settings-btn" aria-label="オプション">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.7l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.7-.3 1.6 1.6 0 0 0-1 1.4V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.4 1.6 1.6 0 0 0-1.7.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.7 1.6 1.6 0 0 0-1.4-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.4-1 1.6 1.6 0 0 0-.3-1.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.7.3 1.6 1.6 0 0 0 1-1.4V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.4 1.6 1.6 0 0 0 1.7-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.7 1.6 1.6 0 0 0 1.4 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1Z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="main">データ取得・添削</button>
+    <button class="tab-btn" data-tab="history">履歴</button>
+  </div>
+
+  <div id="tab-main" class="tab-panel">
+    <section class="card">
+    <div class="row">
+      <label>Contest</label>
+      <div id="contest" class="mono">-</div>
+    </div>
+    <div class="row">
+      <label>Status</label>
+      <div id="status">Ready</div>
+    </div>
+    <div class="progress">
+      <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+    </div>
+    <div class="progress-meta">
+      <div id="progressText">0%</div>
+    </div>
+    </section>
+
+    <section class="card">
+    <div class="row">
+      <label>上位 n 名</label>
+      <select id="topN">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3" selected>3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>添削対象ユーザ</label>
+      <input id="selfUser" type="text" placeholder="空欄: ログインユーザー" style="flex: 1;" />
+    </div>
+    <div class="note">空欄の場合はログインユーザーの提出を取得します</div>
+    <div class="row">
+      <label for="provider">利用プロバイダ</label>
+      <select id="provider">
+        <option value="openai">ChatGPT</option>
+        <option value="gemini">Gemini</option>
+        <option value="claude">Claude</option>
+      </select>
+    </div>
+    <div class="row provider-model">
+      <label for="model">モデル</label>
+      <select id="model"></select>
+    </div>
+    </section>
+
+    <section class="card">
+    <button id="btnRunAll" class="primary">データ取得</button>
+    <button id="btnRunAllReview" class="primary">データ取得 + AI添削</button>
+    <button id="btnCancel" class="danger">中止</button>
+    </section>
+
+    <section class="card result-card" id="resultCard" hidden>
+    <div id="promptResult" hidden>
+      <h3>プロンプト（好みのAIに投げてください）</h3>
+      <textarea id="promptTextarea" readonly rows="12"></textarea>
+      <div class="result-actions">
+        <button id="btnCopyPrompt" class="primary">クリップボードにコピー</button>
+        <button id="btnDownloadPrompt" class="ghost small-btn">ダウンロード</button>
+      </div>
+    </div>
+
+      <div id="reviewResult" hidden>
+        <h3>AI添削レポート</h3>
+        <div id="reviewHtmlContainer"></div>
+        <div class="result-actions">
+        <button id="btnOpenReview" class="primary">別タブで開く</button>
+        <button id="btnDownloadReview" class="ghost small-btn">ダウンロード</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card small">
+    <h3>注意事項</h3>
+    <ul>
+      <li>データ取得はAtCoderに負荷をかけない範囲で行ってください（本拡張はレート制限あり）。</li>
+      <li>他者の提出コードの著作権は提出者に帰属します。配布・公開は避け、個人分析に限定してください。</li>
+      <li>コンテスト中の生成AI利用等はAtCoderのルールに従ってください。</li>
+    </ul>
+    </section>
+  </div>
+
+  <div id="tab-history" class="tab-panel" hidden>
+    <section class="card" id="cacheCard">
+      <h3>保存済みデータの管理</h3>
+      <p class="helper">取得済みのデータを最大100件まで保存しています。エクスポートと削除が可能です。</p>
+      <div class="pager center">
+        <button id="btnCachePrev" class="pager-btn" type="button">← 前の20件</button>
+        <span id="cachePageInfo" class="helper mono">- / -</span>
+        <button id="btnCacheNext" class="pager-btn" type="button">次の20件 →</button>
+      </div>
+      <div id="cache-list" class="cache-list"></div>
+      <div class="inline-actions">
+        <button id="btnCacheRefresh" class="ghost small-btn" type="button">再読込</button>
+        <button id="btnCacheExportAll" class="ghost small-btn" type="button">全件エクスポート</button>
+        <button id="btnCacheDeleteAll" class="ghost small-btn danger" type="button">全件削除</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="vendor/katex/katex.min.js" defer></script>
+  <script src="vendor/katex/auto-render.min.js" defer></script>
+  <script src="vendor/highlightjs/highlight.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

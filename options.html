@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AtCoder Senpai 設定</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div class="title-row">
+        <img src="icon/128.png" alt="AtCoder Senpai" class="logo" />
+        <h1>AtCoder Senpai 設定</h1>
+      </div>
+      <p class="subtitle">AI周りの設定や、取得したデータの管理ができます。</p>
+      
+    </header>
+
+    <section class="card small">
+      <h3>注意事項</h3>
+      <ul>
+        <li>本拡張は <a href="https://x.com/kakira9618">@kakira9618</a> が制作しました。非公式のものであることを承知ください。</li>
+        <li>AtCoder Senpai のアイコンは<a href="https://x.com/chokudai">@chokudai</a>さんの<a href="https://www.dropbox.com/scl/fo/xhlo4lgqgp708y6wd7p0d/AHhx65CFaQGBOLBjzK4HzEw?rlkey=wo0fnwy57cbiqcahd6hy3kt5f&dl=0">フリー素材</a>を基に制作しています。また、拡張のアイコン利用について、許諾を本人にいただいています。</li>
+        <li>データ取得はAtCoderに負荷をかけない範囲で行ってください（本拡張はレート制限あり）。</li>
+        <li>他者の提出コードの著作権は提出者に帰属します。配布・公開は避け、個人分析に限定してください。</li>
+        <li>コンテスト中の生成AI利用等はAtCoderのルールに従ってください。</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h3>APIキー設定</h3>
+      <p class="helper api-desc">APIキーはブラウザのローカルストレージにのみ保存され、AI添削を実行するときに選択したプロバイダーへ直接送信されます。削除したい場合は空欄にして「保存」を押してください。</p>
+      <div class="row key-row">
+        <label for="key-openai">ChatGPT</label>
+        <div class="input-col">
+          <input id="key-openai" type="password" placeholder="sk-..." autocomplete="off" />
+          <span class="helper api-link"><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI APIキー発行ページ</a></span>
+        </div>
+      </div>
+      <div class="row key-row">
+        <label for="key-gemini">Gemini</label>
+        <div class="input-col">
+          <input id="key-gemini" type="password" placeholder="AIza..." autocomplete="off" />
+          <span class="helper api-link"><a href="https://aistudio.google.com/app/api-keys" target="_blank" rel="noopener noreferrer">Gemini APIキー発行ページ</a></span>
+        </div>
+      </div>
+      <div class="row key-row">
+        <label for="key-claude">Claude</label>
+        <div class="input-col">
+          <input id="key-claude" type="password" placeholder="sk-ant-..." autocomplete="off" />
+          <span class="helper api-link"><a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Claude APIキー発行ページ</a></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>AI プロンプト</h3>
+      <p class="helper">コンテスト形式に応じてプロンプトを設定できます。AIに渡す説明文と期待出力例を設定します。空欄の場合はデフォルト文面が使われます。</p>
+
+      <div class="prompt-tabs">
+        <button id="tab-normal" class="tab-btn active" type="button">ABC/ARC/AGC等 (アルゴ)</button>
+        <button id="tab-ahc" class="tab-btn" type="button">AHC (マラソン)</button>
+      </div>
+
+      <div id="tab-content-normal" class="tab-content active">
+        <div class="row textarea-row">
+          <label for="prompt-template">レビュー用プロンプト</label>
+          <div class="textarea-wrap">
+            <textarea id="prompt-template" rows="8" spellcheck="false" placeholder="AIに渡す説明文をここに記載します。"></textarea>
+            <p class="helper"><code>$target_user</code> は添削対象のユーザーに置換されます。</p>
+            <div class="inline-actions">
+              <button id="btnPromptDefault" class="ghost small-btn" type="button">プロンプトをデフォルトに戻す</button>
+            </div>
+          </div>
+        </div>
+        <div class="row textarea-row">
+          <label for="expected-example-text">期待出力例</label>
+          <div class="textarea-wrap expected-wrap">
+            <label class="checkbox-label" for="expected-example-toggle">
+              <input id="expected-example-toggle" type="checkbox" />
+              期待出力例を付加する
+            </label>
+            <textarea id="expected-example-text" rows="6" spellcheck="false" placeholder="期待するアウトプットのサンプルを記載します。"></textarea>
+            <p class="helper">期待出力例を付加することで、より正確なフォーマット指定が可能ですが、AIの個性は発揮されづらくなります。空欄のままONならデフォルト例を利用します。</p>
+            <div class="inline-actions">
+              <button id="btnExpectedDefault" class="ghost small-btn" type="button">期待出力例をデフォルトに戻す</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-content-ahc" class="tab-content">
+        <div class="row textarea-row">
+          <label for="prompt-template-ahc">レビュー用プロンプト</label>
+          <div class="textarea-wrap">
+            <textarea id="prompt-template-ahc" rows="8" spellcheck="false" placeholder="AHC用のプロンプトをここに記載します。"></textarea>
+            <p class="helper"><code>$target_user</code> は添削対象のユーザーに置換されます。</p>
+            <div class="inline-actions">
+              <button id="btnPromptDefaultAhc" class="ghost small-btn" type="button">プロンプトをデフォルトに戻す</button>
+            </div>
+          </div>
+        </div>
+        <div class="row textarea-row">
+          <label for="expected-example-text-ahc">期待出力例</label>
+          <div class="textarea-wrap expected-wrap">
+            <label class="checkbox-label" for="expected-example-toggle-ahc">
+              <input id="expected-example-toggle-ahc" type="checkbox" />
+              期待出力例を付加する
+            </label>
+            <textarea id="expected-example-text-ahc" rows="6" spellcheck="false" placeholder="AHC用の期待出力例を記載します。"></textarea>
+            <p class="helper">期待出力例を付加することで、より正確なフォーマット指定が可能ですが、AIの個性は発揮されづらくなります。空欄のままONならデフォルト例を利用します。</p>
+            <div class="inline-actions">
+              <button id="btnExpectedDefaultAhc" class="ghost small-btn" type="button">期待出力例をデフォルトに戻す</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="btnSave">保存</button>
+      <button id="btnReset" class="ghost" type="button">最後に保存された設定に戻す</button>
+      <button id="btnDefault" class="ghost" type="button">デフォルトに戻す</button>
+      <span id="status" class="status mono">未保存</span>
+    </div>
+
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

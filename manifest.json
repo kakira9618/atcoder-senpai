@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "AtCoder Senpai",
+  "version": "1.0.0",
+  "description": "コンテスト提出を上位陣と比較しAI添削します。",
+  "permissions": [
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://atcoder.jp/*",
+    "https://api.openai.com/v1/*",
+    "https://generativelanguage.googleapis.com/v1beta/*",
+    "https://api.anthropic.com/v1/*"
+  ],
+  "action": {
+    "default_title": "AtCoder Senpai",
+    "default_popup": "popup.html",
+    "default_icons": {
+      "128": "icon/128.png"
+    }
+  },
+  "icons": {
+    "128": "icon/128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://atcoder.jp/contests/*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

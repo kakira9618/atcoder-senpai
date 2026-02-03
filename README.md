@@ -9,7 +9,7 @@ AtCoder Senpai は、指定したユーザーの提出と上位陣の提出の�
 
 AI添削は ChatGPT / Gemini / Claude のAPIキーを設定することで可能になりますが、キーを設定しない場合でも、本拡張で収集したデータを自分のチャット環境に貼り付けて利用できます。
 
-上位陣の提出を見て学ぶ精進方法は、AtCoder のコンテストマネージャである rng_58 さんもオススメする方法です：https://info.atcoder.jp/entry/2025/12/03/170000
+上位陣の提出を見て学ぶ精進方法は、AtCoder でadminを務めていた rng_58 さんもオススメする方法です：https://info.atcoder.jp/entry/2025/12/03/170000
 
 AtCoder Senpai を活用して、効率的に、精進を進めましょう！
 

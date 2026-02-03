@@ -16,8 +16,8 @@ AtCoder Senpai を活用して、効率的に、精進を進めましょう！
 ## レポートサンプル
 添削レポートのサンプルです。
 
-- [アルゴリズム系(ABC215)](./sample_reports/atcoder-abc215-kakira-review.html)
-- [マラソン系(AHC002)](./sample_reports/atcoder-ahc002-kakira-review.html)
+- [アルゴリズム系(ABC215)](./sample_reports/atcoder-abc215-kakira-review.pdf)
+- [マラソン系(AHC002)](./sample_reports/atcoder-ahc002-kakira-review.pdf)
 
 ## 主な機能
 - コンテスト関連データの取得機能

@@ -69,7 +69,7 @@ function sanitizeSelfUser(value) {
   return String(value || "").replace(/[^a-zA-Z0-9_]/g, "");
 }
 
-let appSettings = { selfUser: null };
+let appSettings = { selfUser: null, targetMode: "absolute", targetModeOptions: { absolute: { k: 1, n: 3 }, relative: { k: 1000, n: 3 }, manual: { users: [] } } };
 let aiState = { hasAnyKey: false, providerHasKey: false, provider: "openai" };
 let isBusy = false;
 
@@ -121,10 +121,14 @@ function setBusy(isBusy) {
   // JSON取得ボタンなど共通のBusy制御
   const btn = document.getElementById("btnRunAll");
   const btnCancel = document.getElementById("btnCancel");
-  const topNEl = document.getElementById("topN");
   btn.disabled = isBusy;
   if (btnReview) btnReview.disabled = true; // busy時は常に無効
-  topNEl.disabled = isBusy;
+  // 比較対象モードの全UI要素をbusy時に無効化
+  const targetIds = ["targetMode", "absK", "absN", "relK", "relN", "manualUsers"];
+  targetIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = isBusy;
+  });
   if (btnCancel) btnCancel.disabled = !isBusy;
   document.body.classList.toggle("busy", isBusy);
   if (isBusy) {
@@ -142,7 +146,7 @@ function setBusy(isBusy) {
 // コンテストURLが不明な場合に、実行系の操作をまとめて無効化する
 function setContestControlsEnabled(enabled) {
   const disable = !enabled;
-  const ids = ["btnRunAll", "btnRunAllReview", "btnCancel", "topN", "selfUser", "provider", "model"];
+  const ids = ["btnRunAll", "btnRunAllReview", "btnCancel", "targetMode", "absK", "absN", "relK", "relN", "manualUsers", "selfUser", "provider", "model"];
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = disable;
@@ -156,6 +160,96 @@ function readAndValidateTopN(inputEl) {
     throw new Error("1〜5の整数を入力してください (範囲: 1〜5)");
   }
   return n;
+}
+
+function showTargetOptions(mode) {
+  const abs = document.getElementById("targetAbsolute");
+  const rel = document.getElementById("targetRelative");
+  const man = document.getElementById("targetManual");
+  if (abs) abs.hidden = mode !== "absolute";
+  if (rel) rel.hidden = mode !== "relative";
+  if (man) man.hidden = mode !== "manual";
+}
+
+function readTargetConfig() {
+  const mode = document.getElementById("targetMode")?.value || "absolute";
+  if (mode === "absolute") {
+    const k = parseInt(document.getElementById("absK")?.value) || 1;
+    const n = parseInt(document.getElementById("absN")?.value) || 3;
+    return { mode, k: Math.max(1, k), n: Math.max(1, Math.min(5, n)) };
+  }
+  if (mode === "relative") {
+    const k = parseInt(document.getElementById("relK")?.value) || 1000;
+    const n = parseInt(document.getElementById("relN")?.value) || 3;
+    return { mode, k: Math.max(1, k), n: Math.max(1, Math.min(5, n)) };
+  }
+  if (mode === "manual") {
+    const raw = document.getElementById("manualUsers")?.value || "";
+    const all = raw.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+    if (all.length === 0) throw new Error("比較対象のユーザー名を1名以上入力してください");
+    // 重複除去（大文字小文字を区別しない）
+    const seen = new Set();
+    const users = [];
+    for (const u of all) {
+      const key = u.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); users.push(u); }
+    }
+    if (users.length > 5) throw new Error("ユーザー名は最大5名までです（現在 " + users.length + " 名）");
+    return { mode, users, n: users.length };
+  }
+  return { mode: "absolute", k: 1, n: 3 };
+}
+
+async function saveTargetSettings() {
+  try {
+    const mode = document.getElementById("targetMode")?.value || "absolute";
+    const absK = parseInt(document.getElementById("absK")?.value) || 1;
+    const absN = parseInt(document.getElementById("absN")?.value) || 3;
+    const relK = parseInt(document.getElementById("relK")?.value) || 5;
+    const relN = parseInt(document.getElementById("relN")?.value) || 3;
+    const rawUsers = document.getElementById("manualUsers")?.value || "";
+    const users = rawUsers.split(/[,\s]+/).map(s => s.trim()).filter(Boolean).slice(0, 5);
+    const data = await chrome.storage.local.get("app_settings");
+    const current = data.app_settings || {};
+    const updated = {
+      ...current,
+      targetMode: mode,
+      targetModeOptions: {
+        absolute: { k: Math.max(1, absK), n: Math.max(1, Math.min(5, absN)) },
+        relative: { k: Math.max(1, relK), n: Math.max(1, Math.min(5, relN)) },
+        manual: { users }
+      }
+    };
+    await chrome.storage.local.set({ app_settings: updated });
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function restoreTargetSettings(settings) {
+  const mode = settings.targetMode || "absolute";
+  const opts = settings.targetModeOptions || {};
+  const abs = opts.absolute || { k: 1, n: 3 };
+  const rel = opts.relative || { k: 1000, n: 3 };
+  const man = opts.manual || { users: [] };
+
+  const modeEl = document.getElementById("targetMode");
+  if (modeEl) modeEl.value = mode;
+
+  const absKEl = document.getElementById("absK");
+  const absNEl = document.getElementById("absN");
+  if (absKEl) absKEl.value = String(abs.k || 1);
+  if (absNEl) absNEl.value = String(abs.n || 3);
+
+  const relKEl = document.getElementById("relK");
+  const relNEl = document.getElementById("relN");
+  if (relKEl) relKEl.value = String(rel.k || 1000);
+  if (relNEl) relNEl.value = String(rel.n || 3);
+
+  const manEl = document.getElementById("manualUsers");
+  if (manEl) manEl.value = (man.users || []).join(", ");
+
+  showTargetOptions(mode);
 }
 
 function formatBytes(n) {
@@ -266,7 +360,10 @@ function renderCacheList(items) {
     const tasksCount = it.tasksCount || 0;
     const mySubsCount = it.mySubmissionsCount || 0;
     const topSubsCount = it.topSubmissionsCount || 0;
-    meta.innerHTML = `<strong>${it.contest}</strong><span>${userLabel} / ${formatDate(it.savedAt)} / 提出: ${mySubsCount}+${topSubsCount}</span>`;
+    const topUsersLabel = (it.topUserNames && it.topUserNames.length > 0)
+      ? ` / vs. ${it.topUserNames.join(", ")}`
+      : "";
+    meta.innerHTML = `<strong>${it.contest}</strong><span>${userLabel} / ${formatDate(it.savedAt)} / 提出: ${mySubsCount}+${topSubsCount}${topUsersLabel}</span>`;
     const icons = document.createElement("div");
     icons.className = "cache-icons";
     const contestType = getContestType(it.contest);
@@ -307,10 +404,12 @@ function renderCacheList(items) {
       btnExport.disabled = true;
       try {
         const exportSelfUser = resolveCacheSelfUser(it);
+        const ck = it.cacheKey;
         const reviewRes = await chrome.runtime.sendMessage({
           type: "get_cached_review",
           contest: it.contest,
           selfUser: exportSelfUser,
+          cacheKey: ck,
           reviewId
         });
         if (reviewRes?.ok && reviewRes?.markdown && !reviewRes?.html) {
@@ -319,6 +418,7 @@ function renderCacheList(items) {
             type: "save_review_cache",
             contest: it.contest,
             selfUser: exportSelfUser,
+            cacheKey: ck,
             markdown: reviewRes.markdown,
             reviewId,
             html
@@ -332,6 +432,7 @@ function renderCacheList(items) {
           type: "export_cached_json",
           contest: it.contest,
           selfUser: exportSelfUser,
+          cacheKey: ck,
           reviewId
         });
       } finally {
@@ -350,6 +451,7 @@ function renderCacheList(items) {
         type: "delete_export",
         contest: it.contest,
         selfUser: deleteSelfUser,
+        cacheKey: it.cacheKey,
         reviewId
       });
       await loadCacheList();
@@ -1220,7 +1322,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     // ignore storage errors
   }
 
-  const topNEl = document.getElementById("topN");
+  // 比較対象モードの設定を復元
+  try {
+    const appData = await chrome.storage.local.get("app_settings");
+    const savedAppSettings = appData.app_settings || {};
+    restoreTargetSettings(savedAppSettings);
+  } catch {
+    // ignore storage errors
+  }
+
+  // モード切替・パラメータ変更時に設定を保存
+  const targetModeEl = document.getElementById("targetMode");
+  if (targetModeEl) {
+    targetModeEl.addEventListener("change", () => {
+      showTargetOptions(targetModeEl.value);
+      saveTargetSettings();
+    });
+  }
+  ["absK", "absN", "relK", "relN"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", saveTargetSettings);
+  });
+  const manualUsersEl = document.getElementById("manualUsers");
+  if (manualUsersEl) manualUsersEl.addEventListener("blur", saveTargetSettings);
+
   loadAiSummary();
 
   chrome.runtime.onMessage.addListener((msg) => {
@@ -1243,6 +1368,8 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (msg.aiProvider) saveMsg.aiProvider = msg.aiProvider;
             if (msg.aiModel) saveMsg.aiModel = msg.aiModel;
             await chrome.runtime.sendMessage(saveMsg);
+            cacheState.loaded = false;
+            if (tabHistory && !tabHistory.hidden) loadCacheList();
           } catch {
           }
         })();
@@ -1264,6 +1391,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, currentMode);
     if (msg.done) {
       setBusy(false);
+      cacheState.loaded = false;
+      if (tabHistory && !tabHistory.hidden) loadCacheList();
       // データ取得完了時の処理
       console.log("Data fetch done. currentMode:", currentMode, "isError:", msg.isError);
       if (currentMode === 'data-only' && !msg.isError) {
@@ -1431,8 +1560,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("btnRunAll").addEventListener("click", async () => {
     try {
-      const topN = readAndValidateTopN(topNEl);
-      topNEl.value = String(topN);
+      const targetConfig = readTargetConfig();
       currentMode = 'data-only';
       // 結果エリアを非表示にする
       document.getElementById("resultCard").hidden = true;
@@ -1450,7 +1578,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const res = await sendToTab(tab.id, {
         type: "start_run_all",
         contest,
-        topN,
+        topN: targetConfig.n,
+        targetConfig,
         selfUser: getCurrentSelfUser()
       });
       if (!res?.ok) {
@@ -1473,8 +1602,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     try {
-      const topN = readAndValidateTopN(topNEl);
-      topNEl.value = String(topN);
+      const targetConfig = readTargetConfig();
       currentMode = 'with-review';
       // 結果エリアを非表示にする
       document.getElementById("resultCard").hidden = true;
@@ -1492,7 +1620,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const res = await sendToTab(tab.id, {
         type: "start_run_all",
         contest,
-        topN,
+        topN: targetConfig.n,
+        targetConfig,
         selfUser: getCurrentSelfUser(),
         withReview: true
       });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AtCoder Senpai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "コンテスト提出を上位陣と比較しAI添削します。",
   "permissions": [
     "storage",

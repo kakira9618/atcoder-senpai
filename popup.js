@@ -778,6 +778,7 @@ function markdownToHtml(markdown) {
   const lines = html.split('\n');
   const result = [];
   let inList = false;
+  let listStack = [];
   let inTable = false;
   let tableRows = [];
   let isFirstTableRow = true;
@@ -809,17 +810,33 @@ function markdownToHtml(markdown) {
       isFirstTableRow = true;
     }
 
-    // リスト処理
-    const listMatch = trimmed.match(/^(\*|-|\d+\.)\s+(.+)$/);
+    // リスト処理（ネスト対応）
+    const listMatch = line.match(/^(\s*)([\*\-]|\d+\.)\s+(.+)$/);
     if (listMatch) {
+      const spaces = listMatch[1].length;
       if (!inList) {
         inList = true;
+        listStack = [spaces];
         result.push('<ul>');
+      } else {
+        const currentIndent = listStack[listStack.length - 1];
+        if (spaces > currentIndent) {
+          listStack.push(spaces);
+          result.push('<ul>');
+        } else if (spaces < currentIndent) {
+          while (listStack.length > 1 && listStack[listStack.length - 1] > spaces) {
+            listStack.pop();
+            result.push('</ul>');
+          }
+        }
       }
-      result.push(`<li>${listMatch[2]}</li>`);
+      result.push(`<li>${listMatch[3]}</li>`);
       continue;
     } else if (inList) {
-      result.push('</ul>');
+      while (listStack.length > 0) {
+        listStack.pop();
+        result.push('</ul>');
+      }
       inList = false;
     }
 
@@ -866,7 +883,12 @@ function markdownToHtml(markdown) {
   }
 
   // 最後のリストやテーブルを閉じる
-  if (inList) result.push('</ul>');
+  if (inList) {
+    while (listStack.length > 0) {
+      listStack.pop();
+      result.push('</ul>');
+    }
+  }
   if (inTable) result.push('<table>' + tableRows.join('') + '</table>');
 
   html = result.join('\n');

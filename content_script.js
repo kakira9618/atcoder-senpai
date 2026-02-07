@@ -637,7 +637,7 @@ async function collectTargetUsers(contest, targetConfig, selfUser) {
     const endRank = Math.min(startRank + n - 1, T - 1);
     selected = endRank >= startRank ? allUsers.slice(startRank - 1, endRank) : [];
     if (selected.length === 0) {
-      throw new Error("指定した範囲に自分より上位のユーザーがいません。差分kや人数nを見直してください。");
+      throw new Error("指定した範囲に自分より上位のユーザーがいません。差分dや人数nを見直してください。");
     }
   } else if (mode === "manual") {
     const usernames = targetConfig?.users || [];

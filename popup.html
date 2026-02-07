@@ -59,7 +59,7 @@
     </div>
     <div id="targetAbsolute" class="target-options">
       <div class="row">
-        <label>開始順位 K</label>
+        <label>開始順位 S</label>
         <input id="absK" type="number" min="1" value="1" style="width: 60px;" />
         <label style="margin-left: 8px;">人数 n</label>
         <select id="absN">
@@ -70,11 +70,11 @@
           <option value="5">5</option>
         </select>
       </div>
-      <div class="note">K位からn名を比較対象にします（例：K=1, n=3 でコンテスト上位3名）</div>
+      <div class="note">S位からn名を比較対象にします（例：S=1, n=3 で最上位3名）</div>
     </div>
     <div id="targetRelative" class="target-options" hidden>
       <div class="row">
-        <label>差分 k</label>
+        <label>差分 d</label>
         <input id="relK" type="number" min="1" value="1000" style="width: 60px;" />
         <label style="margin-left: 8px;">人数 n</label>
         <select id="relN">
@@ -85,7 +85,7 @@
           <option value="5">5</option>
         </select>
       </div>
-      <div class="note">あなたの順位Tから、T-k位〜T-k+n-1位を比較対象にします</div>
+      <div class="note">添削対象の順位Tに対し、T-d位〜T-d+n-1位を比較対象にします</div>
     </div>
     <div id="targetManual" class="target-options" hidden>
       <div class="row">

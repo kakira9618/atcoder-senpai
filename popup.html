@@ -50,20 +50,54 @@
 
     <section class="card">
     <div class="row">
-      <label>上位 n 名</label>
-      <select id="topN">
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3" selected>3</option>
-        <option value="4">4</option>
-        <option value="5">5</option>
+      <label>比較対象モード</label>
+      <select id="targetMode">
+        <option value="absolute">絶対順位指定</option>
+        <option value="relative">相対順位指定</option>
+        <option value="manual">ユーザー名指定</option>
       </select>
+    </div>
+    <div id="targetAbsolute" class="target-options">
+      <div class="row">
+        <label>開始順位 S</label>
+        <input id="absK" type="number" min="1" value="1" style="width: 60px;" />
+        <label style="margin-left: 8px;">人数 n</label>
+        <select id="absN">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+      <div class="note">S位からn名を比較対象にします（例：S=1, n=3 で最上位3名）</div>
+    </div>
+    <div id="targetRelative" class="target-options" hidden>
+      <div class="row">
+        <label>差分 d</label>
+        <input id="relK" type="number" min="1" value="1000" style="width: 60px;" />
+        <label style="margin-left: 8px;">人数 n</label>
+        <select id="relN">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+      <div class="note">添削対象の順位Tに対し、T-d位〜T-d+n-1位を比較対象にします</div>
+    </div>
+    <div id="targetManual" class="target-options" hidden>
+      <div class="row">
+        <label>ユーザー名</label>
+        <input id="manualUsers" type="text" placeholder="user1, user2, user3" style="flex: 1;" />
+      </div>
+      <div class="note">カンマ区切りで最大5名まで指定できます</div>
     </div>
     <div class="row">
       <label>添削対象ユーザ</label>
       <input id="selfUser" type="text" placeholder="空欄: ログインユーザー" style="flex: 1;" />
     </div>
-    <div class="note">空欄の場合はログインユーザーの提出を取得します</div>
     <div class="row">
       <label for="provider">利用プロバイダ</label>
       <select id="provider">

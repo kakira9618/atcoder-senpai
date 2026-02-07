@@ -203,6 +203,37 @@ button.danger:hover{
   margin-bottom: 4px;
   text-align: right;
 }
+.target-options{
+  margin: 2px 0 2px 120px;
+  padding: 3px 8px;
+  border-left: 2px solid #d7dbe8;
+}
+.target-options .row{
+  margin: 2px 0;
+  gap: 5px;
+}
+.target-options label{
+  min-width: auto;
+  font-size: 11px;
+  color: #555;
+}
+.target-options input,
+.target-options select{
+  padding: 2px 5px;
+  font-size: 11px;
+}
+.target-options input[type="number"]{
+  flex: 0 0 48px;
+  width: 48px;
+}
+.target-options input[type="text"]{
+  flex: 1;
+}
+.target-options .note{
+  font-size: 10px;
+  margin-top: -1px;
+  margin-bottom: 0;
+}
 .inline-actions{
   display: flex;
   gap: 8px;

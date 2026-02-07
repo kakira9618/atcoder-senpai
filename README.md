@@ -26,7 +26,7 @@ AtCoder Senpai を活用して、効率的に、精進を進めましょう！
 - APIキー、プロンプトなどのオプション設定
 
 ## インストール
-Chrome 拡張ストア(予定)でインストールできます。
+[Chrome 拡張ストア](https://chromewebstore.google.com/detail/atcoder-senpai/fpjjeablidbinklnmidpjdiaepgkjkpj)でインストールできます。
 
 または：
 

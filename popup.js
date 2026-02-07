@@ -124,7 +124,7 @@ function setBusy(isBusy) {
   btn.disabled = isBusy;
   if (btnReview) btnReview.disabled = true; // busy時は常に無効
   // 比較対象モードの全UI要素をbusy時に無効化
-  const targetIds = ["targetMode", "absK", "absN", "relK", "relN", "manualUsers"];
+  const targetIds = ["targetMode", "absK", "absN", "relK", "relN", "manualUsers", "selfUser", "provider", "model"];
   targetIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = isBusy;

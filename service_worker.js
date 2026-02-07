@@ -481,9 +481,11 @@ function canonicalUser(value) {
   return n ? n.toLowerCase() : null;
 }
 
-function cacheKeyFor(contest, selfUser) {
+function cacheKeyFor(contest, selfUser, topUsers = []) {
   const ukey = canonicalUser(selfUser) || "__self__";
-  return `${contest}::${ukey}`;
+  if (!topUsers || topUsers.length === 0) return `${contest}::${ukey}`;
+  const topKey = [...topUsers].map(u => canonicalUser(u)).sort().join(",");
+  return `${contest}::${ukey}::${topKey}`;
 }
 
 function metaKeyForContestWindow(contest) {
@@ -669,17 +671,12 @@ async function saveExportPayload(payload, limit = 100) {
   const hasLoginKey = Array.isArray(parsed.mySubmissions)
     && parsed.mySubmissions.some((s) => s && s.selfUserKey === "__self__");
   const selfUserKey = hasLoginKey ? "__self__" : (canonicalUser(selfUser) || "__self__");
-  const cacheKey = `${contest}::${selfUserKey}`;
+  const topUserNames = (parsed.topUsers || []).map(u => u.user).filter(Boolean);
+  const cacheKey = cacheKeyFor(contest, selfUserKey === "__self__" ? null : selfUser, topUserNames);
   const savedAt = nowIso();
   const size = sizeOfString(json);
   let existing = null;
-  if (selfUserKey === "__self__") {
-    existing = await getExportPayload(contest, null);
-    if (!existing && selfUser) existing = await getExportPayload(contest, selfUser);
-  } else {
-    existing = await getExportPayload(contest, selfUser);
-  }
-
+  try { existing = await getExportPayloadByKey(cacheKey); } catch {}
   // デバッグ: キャッシュに含まれるデータを確認
   const tasksCount = parsed.tasks?.length || 0;
   const mySubsCount = parsed.mySubmissions?.length || 0;
@@ -700,6 +697,7 @@ async function saveExportPayload(payload, limit = 100) {
       tasksCount,
       mySubmissionsCount: mySubsCount,
       topSubmissionsCount: topSubsCount,
+      topUserNames,
       markdown: latest?.markdown || existing?.markdown || null,
       prompt: latest?.prompt || existing?.prompt || null,
       html: latest?.html || existing?.html || null,
@@ -708,15 +706,9 @@ async function saveExportPayload(payload, limit = 100) {
       aiModel: latest?.aiModel || existing?.aiModel || null,
       reviews
     }));
-    if (selfUserKey === "__self__" && selfUser) {
-      const legacyKey = cacheKeyFor(contest, selfUser);
-      if (legacyKey !== cacheKey) {
-        await reqToPromise(st.delete(legacyKey));
-      }
-    }
   });
   await pruneExports(limit);
-  return { contest, selfUser: selfUser || null, savedAt, size, tasksCount };
+  return { contest, selfUser: selfUser || null, savedAt, size, tasksCount, cacheKey };
 }
 
 async function pruneExports(limit = 100) {
@@ -748,7 +740,8 @@ async function listExportsMeta() {
           size,
           tasksCount,
           mySubmissionsCount,
-          topSubmissionsCount
+          topSubmissionsCount,
+          topUserNames = []
         } = value;
         const base = {
           cacheKey,
@@ -759,6 +752,7 @@ async function listExportsMeta() {
           tasksCount,
           mySubmissionsCount,
           topSubmissionsCount,
+          topUserNames,
           hasJson: Boolean(value.json),
           baseSavedAt: savedAt || null
         };
@@ -827,24 +821,54 @@ function formatSavedAtForPath(iso) {
   return String(iso).replace("T", "_").replace("Z", "").replace(/[:.]/g, "-");
 }
 
-async function getExportPayload(contest, selfUser = null) {
-  const cacheKey = cacheKeyFor(contest, selfUser);
+async function getExportPayloadByKey(cacheKey) {
   return await tx(["exports"], "readonly", async ({ exports: st }) => {
     const rec = await reqToPromise(st.get(cacheKey));
     return rec || null;
   });
 }
 
-async function ensureExportRecord(contest, selfUser = null) {
-  const existing = await getExportPayload(contest, selfUser);
+async function getExportPayload(contest, selfUser = null) {
+  // まず旧形式キー（topUsersなし）で直接検索
+  const legacyKey = cacheKeyFor(contest, selfUser);
+  const direct = await getExportPayloadByKey(legacyKey);
+  if (direct) return direct;
+  // contestインデックスでスキャンし、selfUserが一致する最新レコードを返す
+  const ukey = canonicalUser(selfUser) || "__self__";
+  return await tx(["exports"], "readonly", async ({ exports: st }) => {
+    const idx = st.index("contest");
+    let best = null;
+    await new Promise((resolve, reject) => {
+      const cur = idx.openCursor(IDBKeyRange.only(contest));
+      cur.onsuccess = (e) => {
+        const c = e.target.result;
+        if (!c) return resolve();
+        const v = c.value;
+        if ((v.selfUserKey || "__self__") === ukey) {
+          if (!best || (v.savedAt && (!best.savedAt || v.savedAt > best.savedAt))) {
+            best = v;
+          }
+        }
+        c.continue();
+      };
+      cur.onerror = () => reject(cur.error);
+    });
+    return best;
+  });
+}
+
+async function ensureExportRecord(contest, selfUser = null, explicitCacheKey = null) {
+  const existing = explicitCacheKey
+    ? await getExportPayloadByKey(explicitCacheKey)
+    : await getExportPayload(contest, selfUser);
   if (existing) return existing;
   const { basePayload } = await buildPayloads(contest, selfUser);
   await saveExportPayload(basePayload);
   return await getExportPayload(contest, selfUser);
 }
 
-async function updateExportReview(contest, selfUser = null, review = {}) {
-  const rec = await ensureExportRecord(contest, selfUser);
+async function updateExportReview(contest, selfUser = null, review = {}, explicitCacheKey = null) {
+  const rec = await ensureExportRecord(contest, selfUser, explicitCacheKey);
   if (!rec) return { ok: false, error: "キャッシュがありません" };
   const reviews = normalizeReviewsFromRecord(rec);
   let target = null;
@@ -894,16 +918,18 @@ async function updateExportReview(contest, selfUser = null, review = {}) {
   return { ok: true, reviewId: target.id || null };
 }
 
-async function deleteExport(contest, selfUser = null) {
-  const cacheKey = cacheKeyFor(contest, selfUser);
+async function deleteExport(contest, selfUser = null, explicitCacheKey = null) {
+  const cacheKey = explicitCacheKey || cacheKeyFor(contest, selfUser);
   await tx(["exports"], "readwrite", async ({ exports: st }) => {
     await reqToPromise(st.delete(cacheKey));
   });
   return { ok: true };
 }
 
-async function deleteExportReview(contest, selfUser = null, reviewId = null, reviewSavedAt = null) {
-  const rec = await getExportPayload(contest, selfUser);
+async function deleteExportReview(contest, selfUser = null, reviewId = null, reviewSavedAt = null, explicitCacheKey = null) {
+  const rec = explicitCacheKey
+    ? await getExportPayloadByKey(explicitCacheKey)
+    : await getExportPayload(contest, selfUser);
   if (!rec) return { ok: false, error: "キャッシュがありません" };
   let reviews = normalizeReviewsFromRecord(rec);
   if (reviewId) {
@@ -1153,6 +1179,50 @@ async function countSubmissionsByContest(contest, selfUser = null) {
   });
 }
 
+async function countUserSubmissions(contest, username) {
+  if (!contest || !username) return 0;
+  const userLower = username.toLowerCase();
+  return await tx(["submissions"], "readonly", async ({ submissions }) => {
+    const idx = submissions.index("contest");
+    const range = IDBKeyRange.only(contest);
+    let count = 0;
+    await new Promise((resolve, reject) => {
+      const cur = idx.openCursor(range);
+      cur.onsuccess = (e) => {
+        const c = e.target.result;
+        if (!c) return resolve();
+        const v = c.value || {};
+        if ((v.user || "").toLowerCase() === userLower) count++;
+        c.continue();
+      };
+      cur.onerror = () => reject(cur.error);
+    });
+    return count;
+  });
+}
+
+async function clearUsersByContest(contest) {
+  if (!contest) return;
+  return await tx(["users"], "readwrite", async ({ users }) => {
+    const idx = users.index("contest");
+    const range = IDBKeyRange.only(contest);
+    const keys = [];
+    await new Promise((resolve, reject) => {
+      const cur = idx.openCursor(range);
+      cur.onsuccess = (e) => {
+        const c = e.target.result;
+        if (!c) return resolve();
+        keys.push(c.primaryKey);
+        c.continue();
+      };
+      cur.onerror = () => reject(cur.error);
+    });
+    for (const key of keys) {
+      users.delete(key);
+    }
+  });
+}
+
 function pickSelfUser(records, preferredUser) {
   const prefNorm = canonicalUser(preferredUser);
   if (prefNorm) {
@@ -1194,13 +1264,14 @@ async function buildExportPayload(contest, options = {}) {
   const tasks = await getRowsByContest("tasks", contest);
   const topUsers = await listUsersWithRank(contest);
   const rankMap = new Map(topUsers.map(u => [u.user, u.rank]));
+  const topUserSet = new Set(topUsers.map(u => u.user));
 
   const myCandidates = [];
   const topUsersSubmissions = [];
   for (const r of submissions) {
     const sources = Array.isArray(r.sources) ? r.sources : [];
     if (sources.includes("me")) myCandidates.push(r);
-    if (sources.includes("top")) {
+    if (sources.includes("top") && topUserSet.has(r.user)) {
       const rank = rankMap.get(r.user) ?? null;
       topUsersSubmissions.push(rank === null ? r : { ...r, rank });
     }
@@ -1831,6 +1902,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, ...res });
         return;
       }
+      if (msg?.type === "db_clear_users") {
+        await clearUsersByContest(msg.contest);
+        sendResponse({ ok: true });
+        return;
+      }
       if (msg?.type === "db_upsert_tasks") {
         const res = await upsertTasks(msg.contest, msg.tasks || []);
         sendResponse({ ok: true, ...res });
@@ -1843,7 +1919,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       if (msg?.type === "has_export") {
         const selfUser = await resolveSelfUser(msg.selfUser);
-        const rec = await getExportPayload(msg.contest, selfUser);
+        const rec = msg.cacheKey
+          ? await getExportPayloadByKey(msg.cacheKey)
+          : await getExportPayload(msg.contest, selfUser);
         sendResponse({
           ok: true,
           has: Boolean(rec),
@@ -1859,6 +1937,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg?.type === "get_cached_data") {
         try {
           const selfUser = await resolveSelfUser(msg.selfUser);
+          const targetUsers = msg.targetUsers || [];
           const [tasksCount, topUsersCount, submissionCounts] = await Promise.all([
             countByContest("tasks", msg.contest),
             countByContest("users", msg.contest),
@@ -1867,8 +1946,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const topSubmissionsCount = submissionCounts.top || 0;
           const mySubmissionsCount = submissionCounts.my || 0;
           const hasCachedTasks = tasksCount > 0;
-          const hasCachedTopUsers = topUsersCount > 0 && topSubmissionsCount > 0;
+          let hasCachedTopUsers = topUsersCount > 0 && topSubmissionsCount > 0;
           const hasCachedMySubmissions = mySubmissionsCount > 0;
+
+          // targetUsersが指定されている場合、各ユーザーの提出有無を確認
+          let missingUsers = [];
+          if (targetUsers.length > 0) {
+            for (const username of targetUsers) {
+              const userSubs = await countUserSubmissions(msg.contest, username);
+              if (userSubs === 0) missingUsers.push(username);
+            }
+            hasCachedTopUsers = missingUsers.length === 0;
+          }
+
           sendResponse({
             ok: true,
             selfUser,
@@ -1878,7 +1968,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             tasksCount,
             topUsersCount,
             topSubmissionsCount,
-            mySubmissionsCount
+            mySubmissionsCount,
+            missingUsers
           });
         } catch (e) {
           sendResponse({ ok: false, error: String(e?.message || e) });
@@ -1900,13 +1991,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           html: msg.html,
           aiProvider: msg.aiProvider,
           aiModel: msg.aiModel
-        });
+        }, msg.cacheKey || null);
         sendResponse(res);
         return;
       }
       if (msg?.type === "get_cached_review") {
         const selfUser = await resolveSelfUser(msg.selfUser);
-        const rec = await getExportPayload(msg.contest, selfUser);
+        const rec = msg.cacheKey
+          ? await getExportPayloadByKey(msg.cacheKey)
+          : await getExportPayload(msg.contest, selfUser);
         const { review } = selectReviewFromRecord(rec, msg.reviewId);
         sendResponse({
           ok: true,
@@ -1923,7 +2016,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       if (msg?.type === "export_cached_json") {
         const selfUser = await resolveSelfUser(msg.selfUser);
-        const rec = await getExportPayload(msg.contest, selfUser);
+        const rec = msg.cacheKey
+          ? await getExportPayloadByKey(msg.cacheKey)
+          : await getExportPayload(msg.contest, selfUser);
         const { review } = selectReviewFromRecord(rec, msg.reviewId);
         const basePayload = rec?.json ? JSON.parse(rec.json) : (await loadBasePayloadFromCacheOrDb(msg.contest, selfUser, true)).payload;
         const markdownText = review?.markdown || null;
@@ -1990,10 +2085,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       if (msg?.type === "delete_export") {
         const selfUser = await resolveSelfUser(msg.selfUser);
+        const ck = msg.cacheKey || null;
         if (msg.reviewId || msg.reviewSavedAt) {
-          await deleteExportReview(msg.contest, selfUser, msg.reviewId || null, msg.reviewSavedAt || null);
+          await deleteExportReview(msg.contest, selfUser, msg.reviewId || null, msg.reviewSavedAt || null, ck);
         } else {
-          await deleteExport(msg.contest, selfUser);
+          await deleteExport(msg.contest, selfUser, ck);
         }
         sendResponse({ ok: true });
         return;

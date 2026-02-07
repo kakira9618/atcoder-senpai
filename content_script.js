@@ -164,6 +164,17 @@ function canonicalUser(value) {
   return n ? n.toLowerCase() : null;
 }
 
+function getLoginUserFromPage() {
+  // AtCoderページのscriptタグから var userScreenName = "..." を抽出
+  try {
+    for (const script of document.querySelectorAll("script:not([src])")) {
+      const m = script.textContent.match(/var\s+userScreenName\s*=\s*"([^"]+)"/);
+      if (m) return m[1];
+    }
+  } catch {}
+  return null;
+}
+
 async function loadAppSettings() {
   try {
     const data = await chrome.storage.local.get("app_settings");
@@ -548,7 +559,7 @@ async function collectMySubmissions(contest, maxPages, mode, selfUserOverride = 
   return { added: resp.added, updated: resp.updated, totalFetched: details.length };
 }
 
-async function collectTopUsers(contest, topN) {
+async function fetchAllStandings(contest) {
   let users = [];
   try {
     const data = await fetchJson(`/contests/${contest}/standings/json`);
@@ -564,13 +575,92 @@ async function collectTopUsers(contest, topN) {
   if (users.length === 0) {
     const html = await fetchHtml(`/contests/${contest}/standings`);
     const doc = parseDoc(html);
-    users = usersFromStandingsDoc(doc, topN || 20);
+    users = usersFromStandingsDoc(doc, 9999);
   }
-  users = users.slice(0, topN || 3);
+  return users;
+}
+
+async function collectTopUsers(contest, topN) {
+  const allUsers = await fetchAllStandings(contest);
+  const users = allUsers.slice(0, topN || 3);
   if (users.length === 0) throw new Error("順位表から上位ユーザー名を取得できませんでした");
   const resp = await chrome.runtime.sendMessage({ type: "db_upsert_users", contest, users });
   if (!resp?.ok) throw new Error(resp?.error || "DB upsert users failed");
   return { count: users.length, users: users.map(u => u.user), usersDetailed: users };
+}
+
+async function collectTargetUsers(contest, targetConfig, selfUser) {
+  const mode = targetConfig?.mode || "absolute";
+
+  // manual モードは順位表不要（ただし順位情報付与のため取得する）
+  let allUsers = [];
+  if (mode !== "manual") {
+    allUsers = await fetchAllStandings(contest);
+  }
+
+  // absolute / relative モードでは自分の順位を特定する
+  let selfIndex = -1;
+  if (mode === "absolute" || mode === "relative") {
+    const normalizedSelf = (selfUser || "").toLowerCase();
+    if (normalizedSelf) {
+      selfIndex = allUsers.findIndex(u => u.user.toLowerCase() === normalizedSelf);
+    }
+    if (selfIndex === -1) {
+      const loginUser = (getLoginUserFromPage() || "").toLowerCase();
+      if (loginUser) {
+        selfIndex = allUsers.findIndex(u => u.user.toLowerCase() === loginUser);
+      }
+    }
+  }
+
+  let selected = [];
+  if (mode === "absolute") {
+    const k = targetConfig?.k || 1;
+    const n = targetConfig?.n || 3;
+    selected = allUsers.slice(k - 1, k - 1 + n);
+    // 自分と同順位以下のユーザーを除外
+    if (selfIndex !== -1) {
+      selected = selected.filter((_, i) => (k - 1 + i) < selfIndex);
+    }
+    if (selected.length === 0) {
+      throw new Error("指定した順位範囲に自分より上位のユーザーがいません。開始順位や人数を見直してください。");
+    }
+  } else if (mode === "relative") {
+    const k = targetConfig?.k || 1000;
+    const n = targetConfig?.n || 3;
+    if (selfIndex === -1) {
+      throw new Error("順位表から添削対象ユーザーが見つかりませんでした。相対順位指定モードでは、添削対象ユーザーがコンテストに参加している必要があります。");
+    }
+    const T = selfIndex + 1; // 1-indexed rank
+    const startRank = Math.max(1, T - k);
+    // 自分より上位のユーザーのみ（startRank ~ T-1）
+    const endRank = Math.min(startRank + n - 1, T - 1);
+    selected = endRank >= startRank ? allUsers.slice(startRank - 1, endRank) : [];
+    if (selected.length === 0) {
+      throw new Error("指定した範囲に自分より上位のユーザーがいません。差分kや人数nを見直してください。");
+    }
+  } else if (mode === "manual") {
+    const usernames = targetConfig?.users || [];
+    if (usernames.length === 0) throw new Error("比較対象のユーザー名が指定されていません");
+    // 順位情報付与のため順位表を取得（失敗してもOK）
+    try {
+      allUsers = await fetchAllStandings(contest);
+    } catch {
+      allUsers = [];
+    }
+    selected = usernames.map(name => {
+      const found = allUsers.find(u => u.user.toLowerCase() === name.toLowerCase());
+      return found || { user: name, rank: null };
+    });
+  }
+
+  if (selected.length === 0) throw new Error("比較対象ユーザーが見つかりませんでした");
+
+  // 既存のユーザーをクリアしてから新しいユーザーを保存
+  await chrome.runtime.sendMessage({ type: "db_clear_users", contest });
+  const resp = await chrome.runtime.sendMessage({ type: "db_upsert_users", contest, users: selected });
+  if (!resp?.ok) throw new Error(resp?.error || "DB upsert users failed");
+  return { count: selected.length, users: selected.map(u => u.user), usersDetailed: selected };
 }
 
 async function collectTasks(contest, progressCb = null) {
@@ -647,30 +737,32 @@ async function collectTopUsersSubmissions(contest, topN, maxPages, mode, usersOv
   return { users: users.length, added, updated };
 }
 
-async function runAllAndExport(contest, topN, maxPages, mode, withReview = false, selfUserOverride = null) {
+async function runAllAndExport(contest, topN, maxPages, mode, withReview = false, selfUserOverride = null, targetConfig = null) {
   if (isRunAllRunning) {
     await reportProgress(contest, "すでに取得中です。完了までお待ちください。", true, false);
     return;
   }
   isRunAllRunning = true;
   startRunContext(contest);
-  const parts = progressParts(topN, withReview);
+  // targetConfig が無い場合はデフォルト（従来互換: 上位n名）
+  if (!targetConfig) targetConfig = { mode: "absolute", k: 1, n: topN || 3 };
+  const effectiveN = targetConfig.n || topN || 3;
+  const parts = progressParts(effectiveN, withReview);
   let progress = 0;
   try {
     const selfUser = normalizeSelfUser(selfUserOverride);
     throwIfCancelled();
 
-    // キャッシュデータを確認
+    // キャッシュデータを確認（tasks と自分の提出のみ。比較対象はStage3で確定後に判定）
     await reportProgress(contest, "キャッシュを確認中…", false, false, progress);
-    const cachedDataRes = await chrome.runtime.sendMessage({ type: "get_cached_data", contest, selfUser });
+    const cachedDataRes = await chrome.runtime.sendMessage({
+      type: "get_cached_data", contest, selfUser
+    });
     const hasCachedTasks = cachedDataRes?.ok && cachedDataRes?.hasCachedTasks;
-    const hasCachedTopUsers = cachedDataRes?.ok && cachedDataRes?.hasCachedTopUsers;
     const hasCachedMySubmissions = cachedDataRes?.ok && cachedDataRes?.hasCachedMySubmissions;
     const cachedTasksCount = cachedDataRes?.tasksCount || 0;
-    const cachedTopUsersCount = cachedDataRes?.topUsersCount || 0;
-    const cachedTopSubmissionsCount = cachedDataRes?.topSubmissionsCount || 0;
     const cachedMySubmissionsCount = cachedDataRes?.mySubmissionsCount || 0;
-    console.log(`Cache check for ${contest}: tasks=${hasCachedTasks}, topUsers=${hasCachedTopUsers}, mySubmissions=${hasCachedMySubmissions}`);
+    console.log(`Cache check for ${contest}: tasks=${hasCachedTasks}, mySubmissions=${hasCachedMySubmissions}`);
     throwIfCancelled();
 
     // Stage 1: 自分の提出を取得（キャッシュがあればスキップ）
@@ -719,35 +811,44 @@ async function runAllAndExport(contest, topN, maxPages, mode, withReview = false
       progress = stage2Base + stage2Range;
     }
 
-    // Stage 3 & 4: 上位ユーザーと提出を取得（キャッシュがあればスキップ）
+    // Stage 3: 比較対象ユーザーを常に取得（順位表APIは軽量なので毎回実行）
     let r2, r3;
-    if (hasCachedTopUsers) {
-      await reportProgress(contest, "上位ユーザーの提出を取得（キャッシュ使用）", false, false, progress);
-      r2 = { users: [], count: cachedTopUsersCount };
-      r3 = { added: 0, updated: 0, count: cachedTopSubmissionsCount };
-      progress += parts.stage3 + parts.stage4;
-    } else {
-      // Stage 3: 順位表から上位ユーザー名を取得
-      await reportProgress(contest, "順位表から上位ユーザー名を取得中…", false, false, progress);
-      r2 = await collectTopUsers(contest, topN);
-      throwIfCancelled();
-      progress += parts.stage3;
+    await reportProgress(contest, "比較対象ユーザーを取得中…", false, false, progress);
+    r2 = await collectTargetUsers(contest, targetConfig, selfUser);
+    throwIfCancelled();
+    progress += parts.stage3;
 
-      // Stage 4: 上位ユーザーの提出を取得
-      await reportProgress(contest, "上位ユーザーの提出を取得中…", false, false, progress);
+    // 確定したユーザーリストで提出キャッシュを判定
+    const resolvedUsers = r2.users || [];
+    const userCacheRes = await chrome.runtime.sendMessage({
+      type: "get_cached_data", contest, selfUser,
+      targetUsers: resolvedUsers
+    });
+    const missingUsers = userCacheRes?.missingUsers || [];
+    const allUsersCached = userCacheRes?.ok && userCacheRes?.hasCachedTopUsers && missingUsers.length === 0;
+    console.log(`Target users [${resolvedUsers.join(", ")}]: allCached=${allUsersCached}, missing=[${missingUsers.join(", ")}]`);
+
+    // Stage 4: 比較対象ユーザーの提出を取得（キャッシュ済みユーザーはスキップ）
+    if (allUsersCached) {
+      await reportProgress(contest, "比較対象ユーザーの提出を取得（キャッシュ使用）", false, false, progress);
+      r3 = { added: 0, updated: 0 };
+      progress += parts.stage4;
+    } else {
+      const usersToFetch = missingUsers.length > 0 ? missingUsers : resolvedUsers;
+      await reportProgress(contest, "比較対象ユーザーの提出を取得中…", false, false, progress);
       const stage4Base = progress;
       const stage4Range = parts.stage4;
       r3 = await collectTopUsersSubmissions(
         contest,
-        topN,
+        effectiveN,
         maxPages,
         mode,
-        r2.users || [],
+        usersToFetch,
         async ({ index, total, phase }) => {
           const ratio = total ? (phase === "end" ? (index + 1) / total : index / total) : 1;
           const pct = stage4Base + (stage4Range * ratio);
           const label = total ? `${Math.min(index + 1, total)}/${total}` : "";
-          const text = label ? `上位ユーザーの提出を取得中…（${label}）` : "上位ユーザーの提出を取得中…";
+          const text = label ? `比較対象ユーザーの提出を取得中…（${label}）` : "比較対象ユーザーの提出を取得中…";
           await reportProgress(contest, text, false, false, pct);
         }
       );
@@ -757,8 +858,8 @@ async function runAllAndExport(contest, topN, maxPages, mode, withReview = false
 
     const added = r1.added + (r3.added || 0);
     const updated = r1.updated + (r3.updated || 0);
-    const cacheUsed = hasCachedTasks || hasCachedTopUsers || hasCachedMySubmissions;
-    const allCached = hasCachedTasks && hasCachedTopUsers && hasCachedMySubmissions;
+    const cacheUsed = hasCachedTasks || allUsersCached || hasCachedMySubmissions;
+    const allCached = hasCachedTasks && allUsersCached && hasCachedMySubmissions;
     const cacheMsg = cacheUsed ? (allCached ? "（全てキャッシュ使用）" : "（一部キャッシュ使用）") : "";
     progress = parts.stage1 + parts.stage2 + parts.stage3 + parts.stage4;
     await reportProgress(contest, `取得完了: 追加 ${added} / 更新 ${updated}（ユーザー ${r2.count} 名）${cacheMsg}`, false, false, progress);
@@ -871,9 +972,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const maxPages = msg.maxPages || 3;
         const mode = msg.mode || "all";
         const selfUser = msg.selfUser || null;
+        const targetConfig = msg.targetConfig || { mode: "absolute", k: 1, n: topN };
         const r0 = await collectTasks(contest);
         const r1 = await collectMySubmissions(contest, maxPages, mode, selfUser);
-        const r2 = await collectTopUsers(contest, topN);
+        const r2 = await collectTargetUsers(contest, targetConfig, selfUser);
         const r3 = await collectTopUsersSubmissions(contest, topN, maxPages, mode, r2.users || []);
         sendResponse({ tasks: r0, mySubmissions: r1, topUsers: r2, topUsersSubmissions: r3 });
         return;
@@ -884,7 +986,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const maxPages = msg.maxPages || 3;
         const mode = msg.mode || "all";
         const selfUser = msg.selfUser || null;
-        runAllAndExport(contest, topN, maxPages, mode, Boolean(msg.withReview), selfUser);
+        const targetConfig = msg.targetConfig || { mode: "absolute", k: 1, n: topN };
+        runAllAndExport(contest, topN, maxPages, mode, Boolean(msg.withReview), selfUser, targetConfig);
         sendResponse({ ok: true });
         return;
       }

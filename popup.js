@@ -205,7 +205,7 @@ async function saveTargetSettings() {
     const mode = document.getElementById("targetMode")?.value || "absolute";
     const absK = parseInt(document.getElementById("absK")?.value) || 1;
     const absN = parseInt(document.getElementById("absN")?.value) || 3;
-    const relK = parseInt(document.getElementById("relK")?.value) || 5;
+    const relK = parseInt(document.getElementById("relK")?.value) || 1000;
     const relN = parseInt(document.getElementById("relN")?.value) || 3;
     const rawUsers = document.getElementById("manualUsers")?.value || "";
     const users = rawUsers.split(/[,\s]+/).map(s => s.trim()).filter(Boolean).slice(0, 5);

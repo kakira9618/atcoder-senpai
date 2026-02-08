@@ -492,6 +492,11 @@ function metaKeyForContestWindow(contest) {
   return `contest_window::${contest}`;
 }
 
+function metaKeyForTopUserChecked(contest, user) {
+  const userKey = canonicalUser(user);
+  return userKey ? `top_user_checked::${contest}::${userKey}` : null;
+}
+
 function clampProgress(value) {
   return Math.max(0, Math.min(100, Number(value)));
 }
@@ -978,6 +983,42 @@ async function getContestWindow(contest) {
   const end = new Date(rec.endAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   return { startAt: start.toISOString(), endAt: end.toISOString() };
+}
+
+async function markTopUserChecked(contest, user) {
+  const key = metaKeyForTopUserChecked(contest, user);
+  if (!contest || !key) return { ok: false };
+  const record = {
+    key,
+    contest,
+    type: "top_user_checked",
+    user: normalizeSelfUser(user),
+    updatedAt: nowIso()
+  };
+  await tx(["meta"], "readwrite", async ({ meta }) => {
+    await reqToPromise(meta.put(record));
+  });
+  return { ok: true };
+}
+
+async function hasTopUserChecked(contest, user) {
+  const key = metaKeyForTopUserChecked(contest, user);
+  if (!contest || !key) return false;
+  const rec = await tx(["meta"], "readonly", async ({ meta }) => await reqToPromise(meta.get(key)));
+  return Boolean(rec);
+}
+
+async function deleteMetaByPrefix(metaStore, prefix) {
+  await new Promise((resolve, reject) => {
+    const cur = metaStore.openCursor();
+    cur.onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) return resolve();
+      if (String(c.key || "").startsWith(prefix)) c.delete();
+      c.continue();
+    };
+    cur.onerror = () => reject(cur.error);
+  });
 }
 
 async function clearExports() {
@@ -1866,6 +1907,7 @@ async function clearContest(contest) {
 
     const metaKey = metaKeyForContestWindow(contest);
     await reqToPromise(meta.delete(metaKey));
+    await deleteMetaByPrefix(meta, `top_user_checked::${contest}::`);
 
     return { ok: true };
   });
@@ -1954,7 +1996,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (targetUsers.length > 0) {
             for (const username of targetUsers) {
               const userSubs = await countUserSubmissions(msg.contest, username);
-              if (userSubs === 0) missingUsers.push(username);
+              if (userSubs === 0) {
+                const checked = await hasTopUserChecked(msg.contest, username);
+                if (!checked) missingUsers.push(username);
+              }
             }
             hasCachedTopUsers = missingUsers.length === 0;
           }
@@ -1979,6 +2024,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg?.type === "cache_export") {
         const selfUser = await resolveSelfUser(msg.selfUser);
         const res = await cacheExportPayload(msg.contest, selfUser);
+        sendResponse(res);
+        return;
+      }
+      if (msg?.type === "mark_top_user_checked") {
+        const res = await markTopUserChecked(msg.contest, msg.user);
         sendResponse(res);
         return;
       }

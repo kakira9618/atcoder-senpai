@@ -706,6 +706,11 @@ async function collectUserSubmissions(contest, user, maxPages, mode) {
   const details = await collectSubmissionDetails(contest, ids, mode, "top");
   const resp = await chrome.runtime.sendMessage({ type: "db_upsert_submissions", items: details });
   if (!resp?.ok) throw new Error(resp?.error || "DB upsert failed");
+  try {
+    await chrome.runtime.sendMessage({ type: "mark_top_user_checked", contest, user });
+  } catch {
+    // ignore marker update errors (cache判定は次回再取得で補完される)
+  }
   return { added: resp.added, updated: resp.updated, fetched: details.length };
 }
 
